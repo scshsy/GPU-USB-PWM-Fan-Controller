@@ -434,7 +434,7 @@ def main() -> int:
             log(f"gpus=[{g_list}] max={max_temp}C duty={duty}% {rpm_line}")
             # 为 systemd/journald 解析提供稳定前缀
             log(f"{rpm_line}")
-            log(f"board {status_line}")
+            log(f"board temp={max_temp}C duty={duty}% {status_line}")
             hard_fail_streak = 0
 
         except Exception as e:
