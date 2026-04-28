@@ -61,12 +61,26 @@ python tools/fan_daemon.py --port COM4
 python tools/fan_daemon.py --dry-run
 ```
 
-## Ubuntu Server（常驻服务 + 系统命令）
+## Ubuntu Server 一键部署（无需源码）
 
 ```bash
-sudo bash tools/install.sh
+curl -fsSL https://raw.githubusercontent.com/scshsy/GPU-USB-PWM-Fan-Controller/main/tools/deploy.sh | sudo bash
+```
+
+脚本会自动：安装系统依赖 → 从 GitHub 拉取代码 → 安装程序和配置文件 → 启动 systemd 服务。
+
+已有源码时也可手动执行：
+```bash
+sudo bash tools/deploy.sh
+```
+
+常用命令：
+```bash
 sudo systemctl status pwm-fan.service
 sudo journalctl -u pwm-fan -f
+pwm-fan-rpm
+pwm-fan-status
+pwm-fan-help
 ```
 
 系统命令：
