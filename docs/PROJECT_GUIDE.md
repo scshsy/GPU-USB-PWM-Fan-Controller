@@ -51,6 +51,11 @@ STM32G0B1 (Firmware)
 - `tools/pwm_fan_cli.py`：一条命令做一次查询/设置（rpm/status/set/kick）
 - `tools/install.sh`：Ubuntu Server 安装 systemd 服务 + 系统命令（幂等）
 
+### 2.3 硬件（`hardware/`）
+
+- `hardware/GPU USB PWM Fan Controller.epro`：嘉立创EDA 专业版工程（**原理图 + PCB**）
+
+
 ---
 
 ## 3. 固件协议（CDC 文本）

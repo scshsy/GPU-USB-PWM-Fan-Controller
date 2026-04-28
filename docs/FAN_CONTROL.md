@@ -13,6 +13,9 @@
 
 ### 1.2 本控制板 IO（已定板）
 
+- **硬件源文件（嘉立创EDA 专业版，原理图 + PCB）**
+  - `hardware/GPU USB PWM Fan Controller.epro`
+
 - **PWM 输出（推挽，25 kHz）**
   - PA8 → TIM1_CH1 → FAN1_PWM
   - PA9 → TIM1_CH2 → FAN2_PWM

@@ -74,6 +74,10 @@ sudo journalctl -u pwm-fan -f
 - `pwm-fan-status`
 - `pwm-fan-help`
 
+## 硬件源文件（开源入口）
+
+- 嘉立创EDA 专业版工程（**原理图 + PCB**）：`hardware/GPU USB PWM Fan Controller.epro`
+
 ## 关键文档入口
 
 - USB CDC（详细踩坑/架构）：`docs/USB_CDC_GUIDE.md`
