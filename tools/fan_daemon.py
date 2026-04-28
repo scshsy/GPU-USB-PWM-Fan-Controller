@@ -19,6 +19,7 @@ import argparse
 import configparser
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -46,6 +47,19 @@ NVIDIA_SMI_CMD = [
     "--query-gpu=index,name,temperature.gpu",
     "--format=csv,noheader,nounits",
 ]
+
+def _resolve_nvidia_smi() -> str:
+    """
+    在 WSL2 上 nvidia-smi 常见位置是 /usr/lib/wsl/lib/nvidia-smi，
+    systemd 环境下 PATH 可能不包含该目录，因此这里做一次显式解析。
+    """
+    found = shutil.which("nvidia-smi")
+    if found:
+        return found
+    wsl = "/usr/lib/wsl/lib/nvidia-smi"
+    if os.path.isfile(wsl) and os.access(wsl, os.X_OK):
+        return wsl
+    return "nvidia-smi"
 
 def _default_config_path() -> Path:
     # 统一配置：Ubuntu/Linux 上以 /etc 为准（便于 systemd 与手动运行共用同一份）
@@ -109,8 +123,10 @@ def _parse_nvidia_smi_csv(text: str) -> list[GpuTemp]:
 
 
 def read_gpu_temps(gpu_name_filter: Optional[re.Pattern[str]]) -> list[GpuTemp]:
+    cmd = NVIDIA_SMI_CMD.copy()
+    cmd[0] = _resolve_nvidia_smi()
     r = subprocess.run(
-        NVIDIA_SMI_CMD,
+        cmd,
         capture_output=True,
         text=True,
         timeout=2.5,

@@ -39,6 +39,7 @@ max_fail = 10
 temp_fail_duty = 75
 
 
+
 [curve]
 ; 自定义“温度(°C) -> duty(%)”关系：分段线性控制点
 ;
