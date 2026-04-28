@@ -56,7 +56,12 @@ fi
 
 # --- 2. 调用 install.sh 完成安装 ---
 echo "[2/2] running install.sh..."
+cd /
 bash "${TOOL_DIR}/install.sh"
+
+# 安装完成，清理拉取的代码
+echo "[i] cleaning up cloned repository..."
+rm -rf "${INSTALL_DIR}"
 
 echo ""
 echo "============================================"
