@@ -35,17 +35,8 @@ echo "[i] branch: ${BRANCH}"
 echo "[i] install dir: ${INSTALL_DIR}"
 echo ""
 
-# --- 1. 安装系统依赖 ---
-echo "[1/4] installing OS packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y --no-install-recommends \
-  git python3 python3-serial python3-pip \
-  systemd \
-  gawk
-
-# --- 2. 从 GitHub 拉取代码 ---
-echo "[2/4] cloning repository..."
+# --- 1. 从 GitHub 拉取代码 ---
+echo "[1/3] cloning repository..."
 if [[ -d "${INSTALL_DIR}" ]]; then
   echo "[i] directory exists, pulling latest..."
   cd "${INSTALL_DIR}"
@@ -63,8 +54,8 @@ if [[ ! -f "${TOOL_DIR}/fan_daemon.py" ]] || [[ ! -f "${TOOL_DIR}/pwm_fan_cli.py
   exit 1
 fi
 
-# --- 3. 安装程序文件 ---
-echo "[3/4] installing files..."
+# --- 2. 安装程序文件 ---
+echo "[2/3] installing files..."
 INSTALL_LIB_DIR="/usr/local/lib/pwm_fan"
 INSTALL_BIN_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/pwm_fan"
@@ -88,8 +79,8 @@ else
   echo "[i] config exists, keeping: ${CONFIG_FILE}"
 fi
 
-# --- 4. 安装系统命令 ---
-echo "[4/4] installing systemd service and commands..."
+# --- 3. 安装系统命令 ---
+echo "[3/3] installing systemd service and commands..."
 
 # pwm-fan-rpm
 cat > "${INSTALL_BIN_DIR}/pwm-fan-rpm" <<'EOF'

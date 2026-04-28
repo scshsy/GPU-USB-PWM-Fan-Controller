@@ -30,14 +30,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "[i] root_dir=${ROOT_DIR}"
 
-echo "[i] installing OS packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y --no-install-recommends \
-  python3 python3-serial python3-pip \
-  systemd \
-  gawk
-
 INSTALL_LIB_DIR="/usr/local/lib/pwm_fan"
 INSTALL_BIN_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/pwm_fan"
