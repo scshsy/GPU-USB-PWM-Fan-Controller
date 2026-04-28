@@ -1,0 +1,241 @@
+# 角色设定
+你是一位资深嵌入式 + Python 全栈工程师，精通 STM32G0 HAL 库、USB CDC、TIM 定时器
+（PWM / 输入捕获）以及 PlatformIO 工作流；同时熟悉 Python 串口通信与 NVIDIA 工具链
+（nvidia-smi）下的 GPU 监控。
+
+# 项目目标
+基于自制的 STM32G0B1 USB 风扇控制板，实现：
+- 板上固件控制 4-pin 服务器风扇（25 kHz PWM 调速 + TACH 测速），并通过 USB CDC
+  虚拟串口与主机通信；
+- 主机端 Python 脚本读取 NVIDIA 显卡温度，按业内常用温控曲线下发 PWM 占空比，
+  同时回读实时 RPM 显示/记录；
+- 任何异常（USB 未枚举、主机失联、PC 脚本崩溃、电缆松脱）必须自动进入安全档位，
+  保证显卡始终有足够风量。
+
+# 工作流（**已落地，无需再讨论**）
+- 直接在 VS Code + PlatformIO 上用 `framework = stm32cube` 写 C 代码（不再经
+  CubeMX → Makefile → 移植）。
+- 模块化：每个外设/功能一个 `.c/.h`，`main.c` 只做装配和主循环调度。
+  现有模块：`clock`、`led`、`cli`、`crs_diag`、`dfu`、`error`。
+
+# 测试 / 调试工作流（AI 接手时直接照做）
+**核心理念**：每次改完代码 → 编译 → 一键 USB 升级 → 串口验证 → 看现象。
+全程不需要 STLink，不需要按按钮，不需要拔插 USB。
+
+## 1) 编译
+```bash
+pio run -e nucleo_g0b1re
+```
+产物：`.pio/build/nucleo_g0b1re/firmware.bin`
+
+## 2) 一键升级（板子在跑应用时）
+```bash
+python tools/dfu_upload.py .pio/build/nucleo_g0b1re/firmware.bin
+```
+脚本自动：找 CDC 串口 → 发 `dfu` 命令 → 等 ROM bootloader 重枚举 →
+`dfu-util` 烧 + `:leave` → 应用启动。**dfu-util exit code 74 已被脚本吞掉**
+（STM32 ROM 的已知误报），不要被它吓到。
+
+### Windows 上 `python` 报 "Microsoft Store" 占位符时
+当前 shell 的 PATH 没刷新到 scoop 装的 python。直接走脚本支持的 fallback：
+```bash
+"$USERPROFILE/scoop/apps/python/current/python.exe" tools/dfu_upload.py \
+    .pio/build/nucleo_g0b1re/firmware.bin
+```
+脚本内部也会按 `--dfu-util / $DFU_UTIL / PATH / scoop默认路径` 顺序自动找
+`dfu-util`，不必手动指定。
+
+## 3) 板子已经在 DFU 模式（应用挂死/卡住时）
+```bash
+python tools/dfu_upload.py .pio/build/nucleo_g0b1re/firmware.bin --skip-trigger
+```
+确认设备状态：`dfu-util -l` 看到 `[0483:df11]` = 当前在 DFU。
+看到 `0483:5740` = 当前在 CDC 应用模式。
+
+## 4) 串口验证（人/AI 自测都用）
+```bash
+pio device monitor -b 115200
+```
+板上波特率对 USB CDC 是虚拟的，写多少都行；输入回车发 `?` 看 CRS 状态、
+发 `get status` 看风扇状态、发任何串验证 echo 链路。Ctrl-T Ctrl-X 退出。
+
+## 5) 救砖（应用打挂、CDC 不通、`dfu` 命令也下不去）
+```bash
+pio run -t upload          # STLink 直接烧
+```
+ROM bootloader 在 ROM 区不可写，永远救得回。详见 `docs/USB_DFU.md`。
+
+## 6) 端到端自测脚本（AI 在做完一轮改动后建议跑一遍）
+```bash
+pio run -e nucleo_g0b1re                                                    && \
+python tools/dfu_upload.py .pio/build/nucleo_g0b1re/firmware.bin            && \
+echo "OK: rebuilt + reflashed; now run pio device monitor to verify"
+```
+退出码 0 = 编译过了 + 烧录全程成功 + 应用已自动重启。
+
+## 7) AI 调试时的硬性纪律
+- 改完任何 C 代码必须 `pio run` 看是否有 warning/error，不要靠"看起来对"。
+- 烧完后用 `pio device monitor` 验证现象，不要假定生效。
+- 若 fail-safe 80% 行为变了（比如默认/失联/未枚举档位），必须三种场景都自测：
+  1. 上电不开主机脚本 → duty=80
+  2. 拔 USB → duty=80
+  3. 主机脚本运行后停止发 `kick` 超过 3 s → duty=80
+- 提交前确认 `tools/dfu_upload.py firmware.bin` 一键流程仍然能跑（不要把
+  `dfu` 命令注册或 magic 写法搞坏）。
+
+# 硬件平台与 IO 列表（已定板，严禁更改引脚）
+1. MCU: STM32G0B1CBT6（LQFP48）
+2. 时钟（无晶振）:
+   - 内部 HSI48（48 MHz）作为 USBCLK；
+   - SYSCLK 走 HSI16（16 MHz）；
+   - **CRS 时钟恢复以 USB SOF 同步 HSI48**，满足 USB FS 时钟精度。
+3. SWD 调试: PA13 = SWDIO, PA14 = SWCLK（PA14 已外部 10 K 下拉）。
+4. USB: PA11 = D-, PA12 = D+，直连 USB 座，无外部 1.5 K 上拉，使用内部上拉。
+5. 风扇 PWM 输出（推挽，25 kHz，0–100% 可调）:
+   - PA8 → FAN1_PWM = TIM1_CH1
+   - PA9 → FAN2_PWM = TIM1_CH2
+6. 风扇 TACH 测速输入（外部 4.7 K 上拉至 3.3 V + RC 滤波 → MCU 浮空输入）:
+   - PA6 → FAN1_TACH = TIM3_CH1（输入捕获）
+   - PA7 → FAN2_TACH = TIM3_CH2（输入捕获）
+   - 风扇规格：每转产生 2 个脉冲。
+7. 状态 LED（高电平点亮）:
+   - PA1 → LED_SYS（系统心跳）
+   - PA2 → LED_USB（USB 通信状态）
+
+# 已实现的部分（保护好，不要破坏）
+- ✅ HSI48 + CRS 校准（`src/clock.c`）。
+- ✅ USB CDC 设备栈、双缓冲 PMA、SOF 中断；解决了 STM32G0
+  USB/UCPD 共享 IRQn 28 + SYSCFG 时钟未开导致的卡死问题。
+- ✅ PA1 = 1 Hz 心跳；PA2 = USB 状态指示（未枚举=灭，枚举=常亮，
+  RX/TX 事件触发 50 ms 反相暗脉冲）。
+- ✅ CLI 文本命令框架（`src/cli.c`）：行缓冲 128 B、handler 注册表、
+  非阻塞 TX（5 ms 超时）。已注册：
+    - `?`     → CRS 诊断状态
+    - `dfu`   → 写 magic + 软复位 → 跳 ROM bootloader
+- ✅ 一键 DFU 升级 + Python 自动化脚本 + Zadig 驱动文档。
+- ✅ `Error_Handler` 紧急模式：PA1 5 Hz 闪（不依赖 SysTick）。
+- ✅ PWM 输出模块（`src/pwm.{c,h}`）：TIM1 25 kHz，PA8/PA9 两路。
+- ✅ TACH 测速模块（`src/tach.{c,h}`）：TIM3 输入捕获，4-sample 平均，>1s 无脉冲=0。
+- ✅ 风扇控制与安全仲裁（`src/fanctl.{c,h}`）：DEFAULT/HOST/SAFE/OVERRIDE；实现 watchdog 3s 超时回 SAFE。
+- ✅ 协议命令已落地并验证：`set fan`/`get rpm`/`get status`/`kick`。
+- ✅ PC 端温控脚本（`tools/fan_daemon.py`）：多卡取 max 温度、曲线+滞回、双通道同步下发、回读 RPM。
+- ✅ 配置文件读取（`~/.config/pwm_fan/config`）：支持自定义 `[curve] points` 分段线性曲线（命令行优先）。
+- ✅ Ubuntu Server 一键部署（`tools/install.sh`）：systemd 常驻 + journald 日志 + 系统命令 `pwm-fan-*`。
+- ✅ 手动 CLI 工具（`tools/pwm_fan_cli.py`）：rpm/status/set/kick。
+
+# 待实现的功能（已完成 ✅）
+
+## A. 固件侧（C，新增模块）
+| 模块            | 文件                | 关键 API / 行为 |
+|-----------------|--------------------|-----------------|
+| ✅ PWM 输出        | `src/pwm.{c,h}`    | `Pwm_Init()` 配 TIM1 25 kHz、`Pwm_SetDuty(channel, pct)` |
+| ✅ TACH 测速       | `src/tach.{c,h}`   | TIM3 输入捕获中断；`Tach_GetRpm(ch)`；>1 s 无脉冲 → 返回 0；4-sample 滑动平均 |
+| ✅ 风扇控制 / 安全 | `src/fanctl.{c,h}` | 集中 duty 仲裁 + host watchdog + 安全档；注册命令 |
+| ✅ 协议命令         | fanctl 模块通过 `CLI_RegisterHandler` 注册 |
+
+### 固件协议（CDC 文本，行结束 `\r\n` 或 `\n`，大小写不敏感）
+
+| 命令                   | 应答                                              | 说明 |
+|------------------------|---------------------------------------------------|------|
+| `set fan <ch> <pct>`   | `ok` / `err <reason>`                             | ch∈{1,2}，pct∈[0,100]；同时刷新 watchdog |
+| `get rpm`              | `rpm 1=<n> 2=<m>`                                 | 当前两路 RPM |
+| `get status`           | `duty=<a>,<b> rpm=<n>,<m> usb=<0/1> src=<host\|safe> wd=<ms_left> fault=<bits>` | 一行综合状态 |
+| `kick`                 | `ok`                                              | 单纯喂狗，不改变 duty |
+| `?`                    | （已实现）CRS 诊断                                | 不变 |
+| `dfu`                  | （已实现）跳 ROM bootloader                       | 不变 |
+
+### 固件安全策略（重点，不能省）
+1. **上电/复位默认 duty = 80%**（常量 `FAN_DEFAULT_DUTY_PCT 80`）。
+2. **USB 未枚举**（`hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED`）→ 强制 80%。
+3. **主机失联看门狗**：维护一个 `last_host_msg_ms`。任何来自主机的合法
+   `set fan` / `kick` 都会刷新该时间戳。超时阈值 `FAN_HOST_WD_MS = 3000`
+   未刷新 → 强制 80%，并在 `get status` 中报告 `src=safe`。
+4. **fanctl 仲裁顺序**：`override(by source) > host_command > safe_default(80%)`。
+5. **绝不阻塞**：所有判断在主循环 `FanCtl_Service(now)` 里完成，不进 ISR。
+6. （可选）日后加 IWDG，但默认先不开，避免给 DFU 流程添麻烦。
+
+### 主循环挂接（main.c 阶段 4 扩展点已留好）
+```
+Pwm_Init();
+Tach_Init();
+FanCtl_Init();   // 内部调 CLI_RegisterHandler 把 set/get/kick 注册进去
+...
+FanCtl_Service(now);   // 仲裁 + 把目标 duty 写到 PWM
+Tach_Service(now);     // 滑动平均 + 停转检测
+```
+
+## B. PC 主控脚本（Python，已完成：`tools/fan_daemon.py`）
+- 依赖：`pyserial`，以及系统命令 `nvidia-smi`。
+- 启动行为：
+  1. 自动找 STM32 CDC 端口（VID 0x0483 PID 0x5740，复用
+     `tools/dfu_upload.py` 的发现逻辑）；
+  2. 进入循环（默认 1 Hz）：
+     - 调
+       `nvidia-smi --query-gpu=index,name,temperature.gpu --format=csv,noheader,nounits`
+       获取**所有** GPU 温度（多卡场景会输出多行；GPU 数量不固定，脚本要
+       动态枚举，**绝对不要硬编码"显卡数 = 1"**）；
+     - 决策温度 = `max(所有命中 GPU 的温度)`——任意一张卡热就拉满风扇，
+       不取平均（平均会让单卡满载时风量不够）；
+     - 按温控曲线（见下）算目标 duty；
+     - **两个风扇通道始终用同一个 duty 同步控制**：每轮发
+       `set fan 1 <duty>` + `set fan 2 <duty>` 两条命令；
+     - 发 `get rpm` 读取并打印两路转速；
+     - 串口异常 / nvidia-smi 异常 → 静默重试 + 告警，不退出；连续 N 次失败
+       才退出（让板载 watchdog 接管 80%）。
+- 温控曲线（业界常用阶梯 + 滞回，避免风扇频繁加减速）:
+  - 区间（GPU temp °C → duty %）：
+    - `< 40` → 30
+    - `40–55` → 30 → 50（线性）
+    - `55–70` → 50 → 75（线性）
+    - `70–80` → 75 → 100（线性）
+    - `≥ 80` → 100
+  - 滞回 3 °C：升档需达到上沿+0；降档需跌破下沿-3，避免抖动。
+  - 上限保护：任何分支结果 < 30% 一律拉到 30%（最低保活档）。
+  - 失败兜底：连续 3 次拿不到温度 → 强制 75%（比 fail-safe 保守一点）。
+- 命令行参数：
+  - `--port COMx` 覆盖自动发现
+  - `--interval 1.0` 控制周期（秒）
+  - `--gpu-filter <regex>` 仅统计名字匹配的 GPU（默认空 = 所有 GPU 都纳入
+    max；用于多卡机器里只算工作卡、忽略亮机卡的场景）
+  - `--dry-run` 只打印，不下发
+  - `--curve preset:quiet|balanced|aggressive` 预设曲线（默认 balanced）
+- 日志：stdout 一行一记录，含时间、各 GPU 温度列表、决策温度（max）、
+  目标 duty、两路 RPM。
+- 配置文件：默认读取 `~/.config/pwm_fan/config`（可用 `--config` 指定）。
+  - 推荐用 `[curve] points = 40:30, 55:50, 70:75, 80:100` 配温度→duty 曲线。
+
+## C. 文档更新
+- `docs/USB_CDC_GUIDE.md` 顶部加一行"协议见 prompt.txt §A"指向。
+- 新增 `docs/FAN_CONTROL.md`：硬件接线（4-pin PWM/TACH 颜色对照）、协议表、
+  安全策略状态机图、温控曲线图（ASCII 即可）、`fan_daemon.py` 用法、
+  **多卡 → 取最高温 → 双通道同步**这条规则要单列一节明示，附 1/2/4 张卡
+  各自的日志样例，便于排错。
+- 新增 `README.md`（简易版）与 `docs/PROJECT_GUIDE.md`（详细版）。
+
+# 不做 / 暂缓的事
+- 不引入 RTOS。
+- 不引入 watchdog（IWDG）外设。
+- 不在 ISR 中跑 printf / HAL_Delay。
+- 不改任何已实现模块的对外行为（PA1/PA2/CLI 协议向后兼容）。
+
+# 你要给我的输出
+按以下结构给：
+1. **总体方案**：模块拆分图 + 数据流（host → CDC → fanctl → pwm；
+   tach → fanctl → CDC → host）+ 状态机（safe / host-controlled / wd-timeout）。
+2. **C 代码**（按模块分文件呈现，含中文注释，符合既有代码风格——参见
+   `src/cli.c` 风格：模块顶部注释块讲职责、状态机、踩坑提醒；函数前注释说
+   不变量；用 uint32_t 时戳差值判断，永远 wrap-safe）。
+3. **`main.c` 改动**：只贴新增的几行（Init + Service），不要重排整个文件。
+4. **`tools/fan_daemon.py`**：完整可运行脚本，含 `--help`。
+5. **`docs/FAN_CONTROL.md`**：覆盖接线、协议、安全策略、调参方法。
+6. **测试步骤**：上电不插 USB → 应看到默认 80%；插 USB 不跑脚本 → watchdog
+   超时仍 80%；跑脚本 → 看温度变化导致 duty 变化；拔 USB → 回 80%；
+   `dfu` 命令 → 升级 → 应用回归后默认 80%。
+
+# ✅ 最终交付（已完成）
+1) 固件模块：`src/pwm.*`、`src/tach.*`、`src/fanctl.*` 已落地并通过编译/刷写验证  
+2) 主循环挂接：`src/main.c` 已接入 Init/Service  
+3) PC 温控脚本：`tools/fan_daemon.py` 已可运行（含配置文件读取）  
+4) 手动 CLI：`tools/pwm_fan_cli.py`（rpm/status/set/kick）  
+5) Ubuntu Server：`tools/install.sh`（systemd 常驻 + journald 日志 + pwm-fan-* 命令）  
+6) 文档：`README.md`（简易）+ `docs/PROJECT_GUIDE.md`（详细）+ `docs/FAN_CONTROL.md`（协议/安全/接线）  

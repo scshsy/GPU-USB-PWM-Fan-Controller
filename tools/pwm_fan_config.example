@@ -1,0 +1,60 @@
+; PWM Fan Daemon 配置文件示例（INI 格式）
+; ------------------------------------------------------------
+; 适用：Ubuntu Server（systemd 服务 pwm-fan.service）或手动运行 fan_daemon.py
+;
+; Ubuntu 安装脚本会把本文件拷贝到：
+;   /etc/pwm_fan/config   （仅首次安装；若已存在则不覆盖）
+;
+; 生效方式：
+;   - systemd：sudo systemctl restart pwm-fan.service
+;   - 手动运行：重启 python tools/fan_daemon.py（默认也读 /etc/pwm_fan/config）
+; ------------------------------------------------------------
+
+[general]
+; 控制周期（秒）。1.0 = 每秒更新一次 duty + 回读一次 rpm
+interval = 1.0
+
+; 只统计名字匹配该正则表达式的 GPU（留空=所有 GPU 都纳入 max 取最高温）
+; 例：
+;   gpu_filter = RTX|A100
+;   gpu_filter = NVIDIA
+gpu_filter =
+
+; 预设曲线（可选）：preset:quiet|balanced|aggressive
+; 注意：如果你在 [curve] 里提供了 points，则 points 优先于 preset
+curve = preset:balanced
+
+; 降档滞回（°C）：温度没有明显下降就不允许把 duty 降下来，避免抖动
+hysteresis_c = 3.0
+
+; 最低保活档（%）：任何计算结果低于该值都会被抬高到该值
+min_duty = 30
+
+; 连续失败多少次后退出脚本：
+; 失败包括：nvidia-smi 失败、串口异常、读应答超时等。
+; 退出后板载 host watchdog 会在 3s 后把 duty 切回 fail-safe（默认 80%）。
+max_fail = 10
+
+; 温度连续 3 次读取失败时的兜底 duty（%）
+temp_fail_duty = 75
+
+
+[curve]
+; 自定义“温度(°C) -> duty(%)”关系：分段线性控制点
+;
+; 格式：
+;   points = T0:D0, T1:D1, T2:D2, ...
+; 说明：
+;   - Ti 是温度（允许小数）
+;   - Di 是 duty（允许小数，但最终会四舍五入成整数）
+;   - 至少 2 个点
+;   - 超出范围按端点夹紧（不会外推）
+;
+; 推荐基准（等价于常用曲线）：
+;   <40   -> 30
+;   40-55 -> 30..50
+;   55-70 -> 50..75
+;   70-80 -> 75..100
+;   >=80  -> 100
+points = 40:30, 55:50, 70:75, 80:100
+
