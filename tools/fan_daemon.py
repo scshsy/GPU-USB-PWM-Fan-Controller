@@ -251,8 +251,7 @@ class HysteresisController:
             self._last_temp = temp_c
             return proposed_duty
 
-        # 否则保持不变
-        self._last_temp = temp_c
+        # 否则保持不变；不更新 _last_temp（锚点仍是“上一次 duty 变化时”的温度）
         return last
 
 
